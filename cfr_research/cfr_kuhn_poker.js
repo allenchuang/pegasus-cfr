@@ -3,7 +3,7 @@
 const ACTIONS = ["B", "C"]; // bet/call vs check/fold
 const KUHN_CARDS = ["J", "Q", "K"];
 
-const LOG = true;
+const LOG = false;
 
 const NUM_ACTIONS = ACTIONS.length;
 const NUM_CARDS = KUHN_CARDS.length;
@@ -13,7 +13,6 @@ const NUM_CARDS = KUHN_CARDS.length;
 
 class InfoSet {
   constructor() {
-    // this.strategy = Array(NUM_ACTIONS).fill(0.0);
     this.culmulativeStrategies = Array(NUM_ACTIONS).fill(0.0);
     this.culmulativeRegrets = Array(NUM_ACTIONS).fill(0.0);
   }
@@ -40,21 +39,44 @@ class InfoSet {
   }
 
   getStrategy(realizationWeight) {
-    // console.log(
-    //   this.strategy,
-    //   this.culmulativeStrategies,
-    //   this.culmulativeRegrets
-    // );
     let strategy = this.normalize(this.rectify(this.culmulativeRegrets));
+
     for (let i = 0; i < NUM_ACTIONS; i++) {
       this.culmulativeStrategies[i] += strategy[i] * realizationWeight;
     }
-    // this.culmulativeStrategies = strategy.map((v) => v * realizationWeight);
+
+    if (LOG) {
+      console.log("-------- Entering getStrategy() --------");
+      console.log("Realization Weight: ", realizationWeight);
+      console.log("Current Node Stats:");
+      console.log("Culmulative Regrets: ", this.culmulativeRegrets);
+      console.log(
+        "Culmulative Strategies (Strategy multiplied by Realization Weight):"
+      );
+      console.log(this.culmulativeStrategies);
+      console.log(
+        "Rectified Culmulative Regrets: ",
+        this.rectify(this.culmulativeRegrets)
+      );
+      console.log(
+        "Current Strategy (Normalized Rectified Culmulative Regrets):"
+      );
+      console.log(strategy);
+      console.log("-------- Exiting getStrategy() --------");
+    }
 
     return strategy;
   }
 
   getAverageStrategy() {
+    if (LOG) {
+      console.log("-------- Entering getAverageStrategy() --------");
+      console.log("Culmulative Strategies: ", this.culmulativeStrategies);
+      console.log("Average Strategy (Normalized Culmulative Strategies):");
+      console.log(this.normalize(this.culmulativeStrategies));
+      console.log("-------- Exiting getAverageStrategy() --------");
+    }
+
     return this.normalize(this.culmulativeStrategies);
   }
 }
@@ -80,7 +102,8 @@ class KuhnPokerTrainer {
     return KUHN_CARDS.indexOf(card);
   }
 
-  getPayoff(history, cards) {
+  getPayout(history, cards) {
+    let payout;
     let [hero, villan] = this.getHeroVillan(history);
     let lastCheck = history[history.length - 1] == "C"; // last act is check /fold
     let doubleBet = history == "BB" || history == "CBB";
@@ -100,24 +123,46 @@ class KuhnPokerTrainer {
       // C C
       if (doubleCheck) {
         // console.log(isPlayerCardHigher ? 1 : -1);
-        return isPlayerCardHigher ? 1 : -1;
+        payout = isPlayerCardHigher ? 1 : -1;
       } else {
         // BC , CBC
         // console.log(1);
-        return 1;
+        payout = 1;
       }
     } else if (doubleBet) {
       // BB
       //   console.log(isPlayerCardHigher ? 2 : -2);
-      return isPlayerCardHigher ? 2 : -2;
+      payout = isPlayerCardHigher ? 2 : -2;
     }
+
+    if (LOG) {
+      console.log("-------- Entering getPayout() --------");
+      console.log("Current Cards: ", cards);
+      console.log("Game History: ", history);
+      console.log(
+        "Hero Hand: ",
+        cards[hero],
+        "Value: ",
+        this.getCardValue(cards[hero])
+      );
+      console.log(
+        "Villan Hand: ",
+        cards[villan],
+        "Value: ",
+        this.getCardValue(cards[villan])
+      );
+      console.log("Is Hero Hand Higher: ", isPlayerCardHigher);
+      console.log("Final Payout: ", payout);
+      console.log("-------- Exiting getPayout() --------");
+    }
+
+    return payout;
   }
 
   getInfoSet(curCard, history) {
     let cardAndHistory = `${curCard}-${history}`;
     if (!this.nodeMap.has(cardAndHistory)) {
       this.nodeMap.set(cardAndHistory, new InfoSet());
-      //   console.log("new node created");
     }
     return this.nodeMap.get(cardAndHistory);
   }
@@ -130,6 +175,14 @@ class KuhnPokerTrainer {
       let reachProbabilities = [1, 1];
       //   console.log(cards, history, reachProbabilities);
       util += this.cfr(cards, history, reachProbabilities);
+
+      if (LOG) {
+        console.log("-------- Entering train() --------");
+        console.log("Action in loop is: ", i);
+        console.log("Cards Dealt: ", cards);
+        console.log("Utility for current iteration: ", util);
+        console.log("-------- Exiting train() --------");
+      }
     }
 
     return util;
@@ -138,18 +191,43 @@ class KuhnPokerTrainer {
   cfr(cards, history, reachProbabilities) {
     // get payoff if last node in game tree
     if (this.isTerminalNode(history)) {
-      //   console.log(history, cards);
-      return this.getPayoff(history, cards);
+      if (LOG) {
+        console.log("Terminal Node Reached.");
+      }
+
+      return this.getPayout(history, cards);
     }
 
     let [hero, villan] = this.getHeroVillan(history);
     // console.log(hero, villan);
     let infoSetNode = this.getInfoSet(cards[hero], history);
     // console.log(infoSetNode);
+
+    // get actionsStrategy for current infoSet by multiplying
     let strategy = infoSetNode.getStrategy(reachProbabilities[hero]);
     // console.log(strategy);
     let counterfactualValues = Array(NUM_ACTIONS).fill(0.0);
-    let nodeUtilValue = 0;
+    let nodeUtilValue = 0; //
+
+    if (LOG) {
+      console.log("-------- Entering cfr() --------");
+      console.log("Cards: ", cards);
+      console.log("History: ", history);
+      console.log("Reach Probabilities: ", reachProbabilities);
+      console.log(
+        "Hero Hand: ",
+        cards[hero],
+        "Value: ",
+        KUHN_CARDS.indexOf(cards[hero])
+      );
+      console.log(
+        "Villan Hand: ",
+        cards[villan],
+        "Value: ",
+        KUHN_CARDS.indexOf(cards[villan])
+      );
+      console.log("Strategy: ", strategy);
+    }
 
     for (let [i, action] of ACTIONS.entries()) {
       let newHistory = history + action;
@@ -166,11 +244,47 @@ class KuhnPokerTrainer {
       );
 
       nodeUtilValue += counterfactualValues[i] * strategy[i];
+
+      if (LOG) {
+        console.log(`-------- Selecting Action ${i} --------`);
+        console.log("Action selected: ", action);
+        console.log("Action Probability: ", actionProbability);
+        console.log(
+          "Updated reach probability for action: ",
+          newReachProbabilities[hero]
+        );
+        console.log("Utility for action", counterfactualValues[i]);
+        console.log(`-------- End Selection ${i} -----------`);
+      }
     }
 
+    if (LOG) {
+      console.log("------- Regret for each action -------");
+    }
     for (let i = 0; i < NUM_ACTIONS; i++) {
       infoSetNode.culmulativeRegrets[i] +=
         reachProbabilities[villan] * (counterfactualValues[i] - nodeUtilValue);
+
+      if (LOG) {
+        console.log(
+          "Action: ",
+          ACTIONS[i],
+          "Regret: ",
+          reachProbabilities[villan] * (counterfactualValues[i] - nodeUtilValue)
+        );
+      }
+    }
+    if (LOG) {
+      console.log("------- End Regret Calc -------");
+      console.log(
+        "Total Utility for Current Node in Game Tree: ",
+        nodeUtilValue
+      );
+      console.log(
+        "Culmulative Regrets for Node: ",
+        infoSetNode.culmulativeRegrets
+      );
+      console.log("-------- Exiting cfr() --------");
     }
 
     return nodeUtilValue;
